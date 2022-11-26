@@ -1,0 +1,10 @@
+This folder contains a style sheet for html output,
+a folder which contains a Crude Oil weekly prices in a tsv,
+and an R Markdown file.
+
+The R Markdown file contains a commented out auto.arima which 
+you can uncomment and alter to your preference.
+
+You can run the code chunks as set out, you can modify the chunks, 
+and finally you can run knit in RStudio which will save the output 
+of all the chunks to an HTML file. 

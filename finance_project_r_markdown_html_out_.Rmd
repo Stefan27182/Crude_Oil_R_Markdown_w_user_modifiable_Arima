@@ -1,0 +1,228 @@
+---
+title: 'Crude Oil ARIMA projection in R Markdown file w/ HTML output'
+output:
+  #pdf_document: default
+  html_document:
+    css: style.css
+---
+
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+library(tidyverse) # Activates ggplot2, dplyr, tidyr, readr, purr, tibble, stringr, forcats
+library(mice) # Machine learning for missing data imputation using e.g. "rf"
+library(forecast) # includes ARIMA, fourier, etc.
+library(lubridate)
+library(readr)
+library(scales)
+library(tseries)
+options(max.print = 200, scipen=999)
+
+Crude_Oil_prices_weekly <- as_tibble(read_delim("data from Yahoo finance/Crude Oil prices _ weekly _ 2000 - 2010 .tsv", 
+                        delim = "\t", escape_double = FALSE, 
+                        col_types = cols(`Adj Close**` = col_skip()), 
+                        trim_ws = TRUE))
+
+  colnames(Crude_Oil_prices_weekly)[5] <- c("Close")
+
+  tmp_vector <- tibble()
+
+
+  for(x in 1:nrow(Crude_Oil_prices_weekly))
+  {
+    tmp_vector[x,1] <- as_date(strptime(Crude_Oil_prices_weekly[x, 1], format = "%b%d,%Y"))
+
+  } # end for
+
+  Crude_Oil_prices_weekly[, 1] <- tmp_vector
+  
+  # Crude_Oil_prices_weekly$Date <- as.Date(Crude_Oil_prices_weekly$Date)
+
+  Crude_Oil_prices_weekly <- Crude_Oil_prices_weekly[order(Crude_Oil_prices_weekly$Date),]
+
+  Crude_Oil_prices_weekly$Volume <- as.numeric(gsub(",","",Crude_Oil_prices_weekly$Volume))
+testr <- sum(as.integer(is.na(Crude_Oil_prices_weekly)))
+  
+  if(testr > 0)
+  {
+
+    test_mice <- mice(data = Crude_Oil_prices_weekly[, c(2:6)], m = 5, method = "pmm", maxit = 50, seed = 500)
+
+    post_mice <- complete(test_mice, 5)
+
+    Crude_Oil_prices_weekly$Open <- post_mice$Open
+
+    Crude_Oil_prices_weekly$High <- post_mice$High
+
+    Crude_Oil_prices_weekly$Low <- post_mice$Low
+
+    Crude_Oil_prices_weekly$Close <- post_mice$Close
+
+    Crude_Oil_prices_weekly$Volume <- post_mice$Volume
+
+  } # end if
+
+  Crude_Oil_prices_weekly_cond <- Crude_Oil_prices_weekly %>%     filter(!grepl('2007|2008|2009|2010', Date))
+
+  Crude_Oil_prices_weekly_cond_rev <- Crude_Oil_prices_weekly[first(grep("2007", Crude_Oil_prices_weekly$Date)):nrow(Crude_Oil_prices_weekly),]
+  
+  Crude_Oil_prices_weekly_cond_date_close_ts <- ts(Crude_Oil_prices_weekly_cond$Close, start = c(2001, 31), frequency = 52)
+  
+
+# Box Cox transformation
+Lambda <- BoxCox.lambda(Crude_Oil_prices_weekly_cond_date_close_ts)
+
+# Kwiatkowski-Phillips-Schmidt-Shin: a p-value <= 0.05 will indicate a signal that is not trend stationary
+#kpss.test(Crude_Oil_prices_weekly_cond_date_close_ts)
+
+#pacf(Crude_Oil_prices_weekly_cond_date_close_ts)
+
+#acf(Crude_Oil_prices_weekly_cond_date_close_ts)
+
+#plot(decompose(Crude_Oil_prices_weekly_cond_date_close_ts))
+
+#adf test - a small p-value implies rejection of the null hypothesis.
+#adf.test(Crude_Oil_prices_weekly_cond_date_close_ts)
+
+# Box Test: a non-stationary signal will have a low p-value
+#Box.test(Crude_Oil_prices_weekly_cond_date_close_ts, lag = 1, type = "Ljung-Box")
+
+#ndiffs(Crude_Oil_prices_weekly_cond_date_close_ts)
+
+# using approximation = FALSE is slow, but worth it!
+#auto.arima(Crude_Oil_prices_weekly_cond_date_close_ts, d = 1, D = 1, approximation = FALSE, test = c("kpss"), stationary = FALSE, seasonal = TRUE, allowmean = TRUE, allowdrift = TRUE, lambda = Lambda, stepwise = FALSE)
+
+
+nas_full_min <- round(min(Crude_Oil_prices_weekly$Close),0)
+
+nas_cond_min <- round(min(Crude_Oil_prices_weekly_cond$Close), 0)
+
+nas_cond_max <- round(max(Crude_Oil_prices_weekly_cond$Close), 0)
+
+nas_cond_rev_min <- round(min(Crude_Oil_prices_weekly_cond_rev$Close), 0)
+
+nas_cond_rev_max <- round(max(Crude_Oil_prices_weekly_cond_rev$Close), 0)
+
+date_one <- Crude_Oil_prices_weekly[which(Crude_Oil_prices_weekly$Close==min(Crude_Oil_prices_weekly$Close)), 1]
+
+date_one <- as.Date(date_one$Date)
+
+date_two <- Crude_Oil_prices_weekly[which(Crude_Oil_prices_weekly$Close==min(Crude_Oil_prices_weekly_cond_rev$Close)), 1]
+
+date_two <- as.Date(date_two$Date)
+
+date_three <- Crude_Oil_prices_weekly[which(Crude_Oil_prices_weekly$Close==max(Crude_Oil_prices_weekly_cond_rev$Close)), 1]
+
+date_three <- as.Date(date_three$Date)
+# -----
+
+date_one_cond <- Crude_Oil_prices_weekly_cond[which(Crude_Oil_prices_weekly_cond$Close==min(Crude_Oil_prices_weekly_cond$Close)), 1]
+
+date_one_cond <- as.Date(date_one_cond$Date)
+
+date_two_cond <- Crude_Oil_prices_weekly_cond[which(Crude_Oil_prices_weekly_cond$Close==max(Crude_Oil_prices_weekly_cond$Close)), 1]
+
+date_two_cond <- as.Date(date_two_cond$Date)
+
+
+
+```
+
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#fit the model ?Arima
+fitARIMA <- Arima(Crude_Oil_prices_weekly_cond_date_close_ts, order=c(1,1,1), seasonal = list(order = c(1,1,0)),  method = "CSS")
+```
+
+
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#forecast using fitArima, number of points forward, confidence intervels
+futureVal <- forecast(fitARIMA, h=156, level=c(80, 95))
+
+```
+\newpage
+
+ARIMA plot of '07-'09 based on '01-'06 data
+
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+plot(futureVal, main = "Crude Oil prices weekly '01-'06 \nw/ Arima projection for '07-'10", ylab = "$ per Barrel")
+
+```
+\newpage
+
+Crude Oil prices, weekly, '01-'06
+
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}  
+  Crude_Oil_prices_weekly_cond_plot <-  ggplot(Crude_Oil_prices_weekly_cond, aes(Date, Close)) +
+    geom_point(size = 2) +
+    geom_jitter() +
+    scale_fill_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    scale_color_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    geom_label(aes(label = paste('$',formatC(nas_cond_min, big.mark=',', format = 'fg'), ",", date_one_cond), x = date_one_cond, y = nas_cond_min), label.size = 0.25, hjust = -0.15) +
+    geom_label(aes(label = paste('$',formatC(nas_cond_max, big.mark=',', format = 'fg'), ",",  date_two_cond), x = date_two_cond, y = nas_cond_max), label.size = 0.25, hjust = 1.15) +
+    ggtitle("Crude Oil Weekly Prices actual '01 - '06\nPrice per barrel")
+  Crude_Oil_prices_weekly_cond_plot
+
+  #---------------
+```
+\newpage
+
+Crude Oil prices, weekly, '07-'10
+
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}  
+  Crude_Oil_prices_weekly_cond_rev_plot <-  ggplot(Crude_Oil_prices_weekly_cond_rev, aes(Date, Close, colour = Volume)) +
+    geom_point(size = 2) +
+    geom_jitter() +
+    scale_fill_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    scale_color_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    geom_label(aes(label = paste('$',formatC(nas_cond_rev_min, big.mark=',', format = 'fg'), ",", date_two), x = date_two, y = nas_cond_rev_min), label.size = 0.25, hjust = -0.15) +
+    geom_label(aes(label = paste('$',formatC(nas_cond_rev_max, big.mark=',', format = 'fg'), ",",  date_three), x = date_three, y = nas_cond_rev_max), label.size = 0.25, hjust = 1.15) +
+    ggtitle("Crude Oil Weekly Prices actual '07 - '10\nPrice per barrel")
+  Crude_Oil_prices_weekly_cond_rev_plot
+  
+  #---------------
+  
+```
+
+\newpage
+
+Crude Oil prices, weekly, '01-'10
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+  Crude_Oil_prices_weekly_plot <-  ggplot(Crude_Oil_prices_weekly, aes(Date, Close, colour = Volume)) +
+    scale_fill_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) + scale_color_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+    geom_point() +
+    scale_fill_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    scale_color_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    #scale_fill_continuous(labels = scales::unit_format(unit = "B", scale = 1e-9)) +
+    #scale_color_continuous(labels = scales::unit_format(unit = "B", scale = 1e-9)) +
+    geom_jitter() +
+    geom_label(aes(label = paste('$',formatC(nas_full_min, big.mark=',', format = 'fg'), ",", date_one), date_one, y = nas_full_min), label.size = 0.25, hjust = -0.15) +
+    geom_label(aes(label = paste('$',formatC(nas_cond_rev_min, big.mark=',', format = 'fg'), ",",  date_two), date_two, y = nas_cond_rev_min), label.size = 0.25, hjust = 1.05) +
+    geom_label(aes(label = paste('$',formatC(nas_cond_rev_max, big.mark=',', format = 'fg'), ",", date_three), date_three, y = nas_cond_rev_max), label.size = 0.25, hjust = 1.05) +
+    scale_fill_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    scale_color_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+    ggtitle("Crude Oil Weekly actual '01 - '10")
+  Crude_Oil_prices_weekly_plot
+```
+
+\newpage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
